@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# This script discover alive hosts using GNU Parallel
+# This script discovers alive hosts by using GNU Parallel
 #
 
 segment=$1
