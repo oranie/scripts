@@ -1,0 +1,60 @@
+#!/bin/sh
+#
+# Author      : Hiroaki Sano
+# Date        : 20120216
+# Version     : 1.0
+# Description : Check second behind master
+#
+
+# Default configurations
+mysql_cmd='/usr/bin/mysql'
+threshold='100'
+
+# Set options
+while getopts "c:t:" opt; do
+case ${opt} in
+c)
+    mysql_cmd=${OPTARG}
+    ;;
+t)
+    threshold=${OPTARG}
+    ;;
+\?)
+    echo "Usage: $(basename $0) [options...] hostname [hostname...]"
+    echo 'options :'
+    echo '-c : The path to mysql command ( Default: /usr/bin/mysql )'
+    echo '-t : Threshold second behind master ( Default: 100)'
+    exit 1
+;;
+esac
+done
+
+shift `expr ${OPTIND} - 1`
+
+# Execute check
+errorlists=()
+error_cnt=0
+for host in "$@"; do
+
+    second=$(/usr/bin/ssh -1 non_pass_ssh_user@${host} "${mysql_cmd} -uroot -e 'show slave status\G' | grep Seconds_Behind_Master | awk '{print \$2}'")
+    if [ "${second}" = "" ] || [ "${second}" = "NULL" ]; then
+        continue
+    fi
+    if [ ${second} -gt ${threshold} ]; then
+        queuename=$(echo ${queue} | /bin/awk -F"#" '{print $1}')
+        errorlists[${error_cnt}]=$(echo "${host}:[${second}>${threshold}]")
+        error_cnt=`expr ${error_cnt} + 1`
+    fi
+done
+
+# Display alert
+if [ ${error_cnt} != 0 ]; then
+    echo "MySQL slave server is behind master ! See information below...."
+    for info in ${errorlists[@]}; do
+        echo "${info}"
+    done
+    exit 1
+fi
+
+exit 0
+

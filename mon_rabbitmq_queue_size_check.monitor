@@ -1,0 +1,74 @@
+#!/bin/sh
+#
+# Author      : Hiroaki Sano
+# Date        : 20111006
+# Version     : 1.0
+# Description : Queue size checker for RabbitMQ
+#
+
+# Default configurations
+rabbitmqctl='/usr/local/rabbitmq/sbin/rabbitmqctl'
+rabbitmq_user='rabbitmq'
+rabbitmq_vhost='/'
+threshold='1000'
+
+# Set options
+while getopts "c:u:p:t:" opt; do
+case ${opt} in
+c)
+    rabbitmqctl=${OPTARG}
+    ;;
+u)
+    rabbitmq_user=${OPTARG}
+    ;;
+p)
+    rabbitmq_vhost=${OPTARG}
+    ;;
+t)
+    threshold=${OPTARG}
+    ;;
+\?)
+    echo "Usage: $(basename $0) [options...] hostname [hostname...]"
+    echo 'options :'
+    echo '-c : The path to rabbitmqctl command ( Default: /usr/local/rabbitmq/sbin/rabbitmqctl )'
+    echo '-u : Username for rabbitmq ( Default: rabbitmq )'
+    echo '-p : Rabbitmq vhost ( Default: / )'
+    echo '-t : Threshold queues ( Default: 1000)'
+    exit 1
+;;
+esac
+done
+
+shift `expr ${OPTIND} - 1`
+
+# Execute check
+errorlists=()
+error_cnt=0
+for host in "$@"; do
+
+    # Get queue name and queue size as queues[] = {name0#size0, name1#size1, ...}
+    queues=$(/usr/bin/ssh -1 ${rabbitmq_user}@${host} \
+        ${rabbitmqctl} -p ${rabbitmq_vhost} list_queues name messages \
+        | grep -v "\.\.\." | /bin/awk '{print $1"#"$2}')
+
+    for queue in ${queues[@]}; do
+        queuesize=$(echo ${queue} | /bin/awk -F"#" '{print $2}')
+        if [ ${queuesize} -gt ${threshold} ]; then
+            queuename=$(echo ${queue} | /bin/awk -F"#" '{print $1}')
+            errorlists[${error_cnt}]=$(echo "${host}:${queuename}:[${queuesize}>${threshold}]")
+            error_cnt=`expr ${error_cnt} + 1`
+        fi
+    done
+done
+
+# Display alert
+if [ ${error_cnt} != 0 ]; then
+    echo "RabbitMQ queue size has exceeded threshold ! See information below...."
+    for info in ${errorlists[@]}; do
+        echo "${info}"
+    done
+    exit 1
+fi
+
+exit 0
+
